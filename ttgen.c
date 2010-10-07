@@ -175,7 +175,7 @@ static int evaluate(Node *tree, uint64_t bits) {
     switch(tree->id) {
       case OP_OR:   r = a || b;    break;
       case OP_AND:  r = a && b;    break;
-      case OP_XOR:  r = !!a ^ !!b;    break;
+      case OP_XOR:  r = a != b;    break;
       case OP_NAND: r = !(a && b); break;
       case OP_NOR:  r = !(a || b); break;
       case OP_IMP:  r = b || !a;   break;
