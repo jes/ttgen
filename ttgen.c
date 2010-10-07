@@ -189,8 +189,10 @@ static int evaluate(Node *tree, uint64_t bits) {
 static void print_table(Node *tree) {
   uint64_t i;
   uint64_t b;
+  int var_len[num_vars];
 
   for(i = 0; i < num_vars; i++) {
+    var_len[i] = strlen(variable[i]);
     printf("%s ", variable[i]);
   }
   printf("\n");
@@ -198,7 +200,7 @@ static void print_table(Node *tree) {
   /* NOTE: comparison between i and -1 works because of overflow */
   for(i = (1 << num_vars) - 1; i != -1; i--) {
     for(b = 0; b < num_vars; b++) {
-      printf("%d ", !!(i & (1 << b)));
+      printf("%-*d ", var_len[b], !!(i & (1 << b)));
     }
 
     printf("  ");
