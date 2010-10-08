@@ -80,8 +80,8 @@ static int oper_id(const char *oper_name) {
 }
 
 /* return the next token available in the global string "input", or NULL if
-   the end of the string is reached. The returned token should be free'd with
-   free_token() */
+ * the end of the string is reached. The returned token should be free'd with
+ * free_token() */
 static Token *next_token(void) {
   static char *p = NULL;
   Token *t;
@@ -162,7 +162,7 @@ static void branch(Node *n) {
 }
 
 /* evalute the expression tree, with variable n corresponding to the nth bit
-   of 'bits' with 0 being the least significant */
+ * of 'bits' with 0 being the least significant */
 static int evaluate(Node *tree, uint64_t bits) {
   int a, b, r;
 
@@ -261,6 +261,7 @@ int main(int argc, char **argv) {
     for(i = 0; i < num_vars; i++) {
       variable[i] = NULL;
     }
+    num_vars = 0;
   }
 
   return 0;
