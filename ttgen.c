@@ -235,11 +235,13 @@ static void print_table(Node *tree) {
 }
 
 int main(int argc, char **argv) {
-  int expect = EXPR;
+  int expect;
   Token *t;
   Node *tree;
 
   while(fgets(input, 1024, stdin)) {
+    expect = EXPR;
+
     tree = make_node();
     tree->parent = tree;/* HACK: prevent the trailing bracket from failing */
 
