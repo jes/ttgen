@@ -180,13 +180,14 @@ static void output(Token *t) {
   /* assign type and id */
   n->type = t->type;
   if(t->type == OPERATOR) n->id = oper_id(t->text);
-  if(t->type == VARIABLE) n->id = var_id(t->text);
+  else if(t->type == VARIABLE) n->id = var_id(t->text);
 
   free_token(t);
 }
 
 /* evaluate the expression with the variable values given in 'bits'.
- * return -1 on stack overflow, and -2 on underflow */
+ * return -1 on stack overflow, -2 on underflow, and -3 if there is more than
+ * one value left on the stack at the end */
 static int evaluate(uint64_t bits) {
   char stack[STACK_MAX];
   int sp = 0;
@@ -230,6 +231,8 @@ static int evaluate(uint64_t bits) {
     }
   }
 
+  if(sp != 1) return -3;
+
   return stack[--sp];
 }
 
@@ -242,7 +245,9 @@ static void print_table(void) {
 
   /* HACK: see if the stack is going to fail before printing the variables */
   if((fail = evaluate(0)) < 0) {
-    fprintf(stderr, "Stack %sflow.\n", (fail == -1) ? "over" : "under");
+    if(fail == -1) fprintf(stderr, "Stack overflow.\n");
+    else if(fail == -2) fprintf(stderr, "Stack underflow.\n");
+    else if(fail == -3) fprintf(stderr, "Stack not empty.\n");
     return;
   }
 
