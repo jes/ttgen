@@ -11,12 +11,8 @@
 #define WHITESPACE " \n\t"
 #define BRACKETS   "()"
 
-#define LEFT  0
-#define RIGHT 1
-
 enum type { UNKNOWN=0, VARIABLE, OPERATOR, LPAREN, RPAREN, NOT };
 enum oper { OP_OR, OP_AND, OP_XOR, OP_NAND, OP_NOR, OP_IMP };
-enum expect { EXPR, OPER };
 
 typedef struct Node {
   char type;/* UNKNOWN, VARIABLE, OPERATOR, or NOT */
@@ -28,12 +24,14 @@ typedef struct Token {
   char type;/* VARIABLE, OPERATOR, LPAREN, RPAREN, or NOT */
 } Token;
 
+/* array of operator names */
+static char *operator[] = { "OR", "AND", "XOR", "NAND", "NOR", "IMP", NULL };
+
+#define STACK_MAX 128
+
 /* expression nodes */
 Node *node;
 int np;
-
-/* array of operator names */
-static char *operator[] = { "OR", "AND", "XOR", "NAND", "NOR", "IMP", NULL };
 
 /* array of variable names, for looking up id's
  * unused entries are NULL */
@@ -164,6 +162,7 @@ static void free_token(Token *t) {
 /* free the expression nodes */
 static void free_nodes(void) {
   free(node);
+  node = NULL;
   np = 0;
 }
 
@@ -255,13 +254,19 @@ static void print_table(void) {
 
 int main(int argc, char **argv) {
   Token *t;
-  Token *stack[128];
+  Token *stack[STACK_MAX];
   int sp = 0;
 
+#define PUSH(t) if(sp >= STACK_MAX) {                   \
+                  fprintf(stderr, "Stack overflow.\n"); \
+                  goto cleanup;                         \
+                }                                       \
+                stack[sp++] = (t);
+
+  /* TODO: use getline() or similar */
   while(fgets(input, 1024, stdin)) {
     /* repeatedly read tokens and use the output() function to convert from RPN
      * to an expression tree */
-    /* TODO: error-checking */
     while((t = next_token())) {
       switch(t->type) {
         case VARIABLE:
@@ -271,25 +276,29 @@ int main(int argc, char **argv) {
 
         case OPERATOR:
           /* output operators from the top of the stack */
-          while(stack[sp-1]->type == OPERATOR || stack[sp-1]->type == NOT) {
+          while(sp && (stack[sp-1]->type == OPERATOR
+                    || stack[sp-1]->type == NOT)) {
             output(stack[--sp]);
           }
           /* push operator */
-          stack[sp++] = t;
+          PUSH(t);
           break;
 
         case LPAREN:
           /* push lparen */
-          stack[sp++] = t;
+          PUSH(t);
           break;
 
         case RPAREN:
           /* pop operators until LPAREN encountered */
-          while(stack[sp-1]->type != LPAREN) {
-            if(stack[sp-1]->type != OPERATOR) {
-              fprintf(stderr, "WHAT THE FUCK\n");
-            }
+          while(sp && (stack[sp-1]->type != LPAREN)) {
             output(stack[--sp]);
+          }
+          /* if stack runs out without finding an LPAREN, parentheses are
+           * mismatched */
+          if(sp == 0) {
+            fprintf(stderr, "Mismatched parentheses.\n");
+            goto cleanup;
           }
           /* pop and discard LPAREN */
           free_token(stack[--sp]);
@@ -299,15 +308,17 @@ int main(int argc, char **argv) {
 
         case NOT:
           /* push operator */
-          stack[sp++] = t;
+          PUSH(t);
           break;
       }
     }
 
     /* while operators left on stack, output them */
     while(sp) {
-      if(stack[sp-1]->type != OPERATOR && stack[sp-1]->type != NOT) {
-        fprintf(stderr, "NON-OPERATOR LEFT ON STACK!!!\n");
+      /* if any LPAREN's are on the stack, parentheses are mismatched */
+      if(stack[sp-1]->type == LPAREN) {
+        fprintf(stderr, "Mismatched parentheses.\n");
+        goto cleanup;
       }
       /* output operator */
       output(stack[--sp]);
@@ -316,9 +327,16 @@ int main(int argc, char **argv) {
     /* print the truth table */
     print_table();
 
-    cleanup:
+   cleanup:
+    /* free the stack */
+    while(sp) {
+      free_token(stack[--sp]);
+    }
+    /* reset the token stream */
     reset_tokstr();
+    /* free the expression nodes */
     free_nodes();
+
     printf("\n");
  }
 
