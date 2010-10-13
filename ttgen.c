@@ -14,22 +14,23 @@
 #define LEFT  0
 #define RIGHT 1
 
-enum type { UNKNOWN=0, VARIABLE, OPERATOR, BRACKET, NOT };
+enum type { UNKNOWN=0, VARIABLE, OPERATOR, LPAREN, RPAREN, NOT };
 enum oper { OP_OR, OP_AND, OP_XOR, OP_NAND, OP_NOR, OP_IMP };
 enum expect { EXPR, OPER };
 
 typedef struct Node {
-  char type;/* UNKNOWN, VARIABLE or OPERATOR */
-  char not;/* negation flag */
+  char type;/* UNKNOWN, VARIABLE, OPERATOR, or NOT */
   int id;/* variable or operator index */
-  struct Node *parent;/* pointer to parent node */
-  struct Node *child[2];/* pointers to child nodes */
 } Node;
 
 typedef struct Token {
   char *text;/* the actual text of the token */
-  char type;/* VARIABLE, OPERATOR, BRACKET, or NOT */
+  char type;/* VARIABLE, OPERATOR, LPAREN, RPAREN, or NOT */
 } Token;
+
+/* expression nodes */
+Node *node;
+int np;
 
 /* array of operator names */
 static char *operator[] = { "OR", "AND", "XOR", "NAND", "NOR", "IMP", NULL };
@@ -123,7 +124,7 @@ static Token *next_token(void) {
     t->text = malloc(2);
     t->text[0] = *input_ptr;
     t->text[1] = '\0';
-    t->type = BRACKET;
+    t->type = (*input_ptr == '(') ? LPAREN : RPAREN;
     input_ptr++;
     return t;
   }
@@ -160,59 +161,76 @@ static void free_token(Token *t) {
   free(t);
 }
 
-/* make a zero-filled node for the expression tree */
-static Node *make_node(void) {
+/* free the expression nodes */
+static void free_nodes(void) {
+  free(node);
+  np = 0;
+}
+
+/* pass tokens to this as if they were being output in RPN, and this function
+ * builds the appropriate expression tree */
+static void output(Token *t) {
   Node *n;
 
-  n = malloc(sizeof(Node));
-  memset(n, 0, sizeof(Node));
-  return n;
+  /* make another expression node */
+  node = realloc(node, sizeof(Node) * (np + 1));
+
+  /* get a pointer to the next node */
+  n = node + np++;
+
+  /* assign type and id */
+  n->type = t->type;
+  if(t->type == OPERATOR) n->id = oper_id(t->text);
+  if(t->type == VARIABLE) n->id = var_id(t->text);
+
+  free_token(t);
 }
 
-/* free's the expression tree */
-static void free_expr(Node *tree) {
-  if(tree->child[LEFT]) {
-    free_expr(tree->child[LEFT]);
-    free_expr(tree->child[RIGHT]);
-  }
+/* evaluate the expression with the variable values given in 'bits' */
+static int evaluate(uint64_t bits) {
+  char stack[128];
+  int sp = 0;
+  int i, r;
+  int a, b;
 
-  free(tree);
-}
+  /* for each expression node */
+  for(i = 0; i < np; i++) {
+    switch(node[i].type) {
+      case VARIABLE:
+        /* push variable value */
+        stack[sp++] = !!(bits & (1 << node[i].id));
+        break;
 
-/* make both child nodes for the given node */
-static void branch(Node *n) {
-  n->child[0] = make_node();
-  n->child[0]->parent = n;
-  n->child[1] = make_node();
-  n->child[1]->parent = n;
-}
+      case OPERATOR:
+        /* pop operands */
+        b = stack[--sp];
+        a = stack[--sp];
 
-/* evalute the expression tree, with variable n corresponding to the nth bit
- * of 'bits' with 0 being the least significant */
-static int evaluate(Node *tree, uint64_t bits) {
-  int a, b, r;
+        /* calculate result */
+        switch(node[i].id) {
+          case OP_OR: r = a || b; break;
+          case OP_AND: r = a && b; break;
+          case OP_XOR: r = a != b; break;
+          case OP_NAND: r = !(a && b); break;
+          case OP_NOR: r = !(a || b); break;
+          case OP_IMP: r = !a || b; break;
+        }
 
-  if(tree->type == VARIABLE) {
-    r = !!(bits & (1 << tree->id));
-  } else {
-    a = evaluate(tree->child[LEFT], bits);
-    b = evaluate(tree->child[RIGHT], bits);
+        /* push result */
+        stack[sp++] = r;
+        break;
 
-    switch(tree->id) {
-      case OP_OR:   r = a || b;    break;
-      case OP_AND:  r = a && b;    break;
-      case OP_XOR:  r = a != b;    break;
-      case OP_NAND: r = !(a && b); break;
-      case OP_NOR:  r = !(a || b); break;
-      case OP_IMP:  r = b || !a;   break;
+      case NOT:
+        stack[sp - 1] = !stack[sp - 1];
+        break;
     }
   }
 
-  return r ^ tree->not;
+  return stack[--sp];
 }
 
-/* prints out the truth table for the given boolean expression tree */
-static void print_table(Node *tree) {
+/* print the truth table for the expression */
+static void print_table(void) {
   uint64_t i;
   uint64_t b;
   int var_len[num_vars];
@@ -223,95 +241,84 @@ static void print_table(Node *tree) {
   }
   printf("\n");
 
-  /* NOTE: comparison between i and -1 works because of overflow */
+  /* NOTE: comparison between i and -1 works because of
+   * overflow */
   for(i = (1 << num_vars) - 1; i != -1; i--) {
     for(b = 0; b < num_vars; b++) {
-      printf("%-*d ", var_len[b], !!(i & (1 << b)));
+        printf("%-*d ", var_len[b], !!(i & (1 << b)));
     }
 
-    printf("  ");
-    printf("%d\n", evaluate(tree, i));
+    printf(" ");
+    printf("%d\n", evaluate(i));
   }
 }
 
 int main(int argc, char **argv) {
-  int expect;
   Token *t;
-  Node *tree;
+  Token *stack[128];
+  int sp = 0;
 
   while(fgets(input, 1024, stdin)) {
-    expect = EXPR;
-
-    tree = make_node();
-    tree->parent = tree;/* HACK: prevent the trailing bracket from failing */
-
-    /* repeatedly read tokens and store them in the expression tree */
+    /* repeatedly read tokens and use the output() function to convert from RPN
+     * to an expression tree */
+    /* TODO: error-checking */
     while((t = next_token())) {
       switch(t->type) {
-        case BRACKET:
-          if(*t->text == '(') {
-            if(expect != EXPR) {
-              fprintf(stderr, "error: wasn't expecting expression, got open"
-              "paren.\n");
-              goto cleanup;
-            }
-            /* branch and descend left */
-            branch(tree);
-            tree = tree->child[LEFT];
-            expect = EXPR;
-          } else /* *t->text == ')' */ {
-            /* ascend */
-            tree = tree->parent;
-            expect = OPER;
-          }
-          break;
-
         case VARIABLE:
-          if(expect != EXPR) {
-            fprintf(stderr, "error: wasn't expecting expression, got \"%s\".\n",
-                    t->text);
-            goto cleanup;
-          }
-          /* store variable and ascend */
-          tree->type = VARIABLE;
-          tree->id = var_id(t->text);
-          tree = tree->parent;
-          expect = OPER;
+          /* output variable */
+          output(t);
           break;
 
         case OPERATOR:
-          if(expect != OPER) {
-            fprintf(stderr, "error: wasn't expecting operator, got \"%s\".\n",
-                    t->text);
-            goto cleanup;
+          /* output operators from the top of the stack */
+          while(stack[sp-1]->type == OPERATOR || stack[sp-1]->type == NOT) {
+            output(stack[--sp]);
           }
-          /* store operator and descend right */
-          tree->type = OPERATOR;
-          tree->id = oper_id(t->text);
-          tree = tree->child[RIGHT];
-          expect = EXPR;
+          /* push operator */
+          stack[sp++] = t;
+          break;
+
+        case LPAREN:
+          /* push lparen */
+          stack[sp++] = t;
+          break;
+
+        case RPAREN:
+          /* pop operators until LPAREN encountered */
+          while(stack[sp-1]->type != LPAREN) {
+            if(stack[sp-1]->type != OPERATOR) {
+              fprintf(stderr, "WHAT THE FUCK\n");
+            }
+            output(stack[--sp]);
+          }
+          /* pop and discard LPAREN */
+          free_token(stack[--sp]);
+          /* free RPAREN */
+          free_token(t);
           break;
 
         case NOT:
-          if(expect != EXPR) {
-            fprintf(stderr, "error: wasn't expecting expression, got \"%s\".\n",
-                    t->text);
-            goto cleanup;
-          }
-          /* toggle negation flag */
-          tree->not = !tree->not;
+          /* push operator */
+          stack[sp++] = t;
           break;
       }
+    }
 
-      free_token(t);
+    /* while operators left on stack, output them */
+    while(sp) {
+      if(stack[sp-1]->type != OPERATOR && stack[sp-1]->type != NOT) {
+        fprintf(stderr, "NON-OPERATOR LEFT ON STACK!!!\n");
+      }
+      /* output operator */
+      output(stack[--sp]);
     }
 
     /* print the truth table */
-    print_table(tree);
+    print_table();
 
     cleanup:
     reset_tokstr();
-    free_expr(tree);
+    free_nodes();
     printf("\n");
  }
 
