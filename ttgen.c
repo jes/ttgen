@@ -11,7 +11,7 @@
 #define WHITESPACE " \n\t"
 #define BRACKETS   "()"
 
-enum type { UNKNOWN=0, VARIABLE, OPERATOR, LPAREN, RPAREN, NOT };
+enum type { UNKNOWN=0, VARIABLE, OPERATOR, LPAREN, RPAREN, NOT, SLASHVARS };
 enum oper { OP_OR, OP_AND, OP_XOR, OP_NAND, OP_NOR, OP_IMP };
 
 typedef struct Node {
@@ -117,17 +117,22 @@ static Token *next_token(void) {
 
   t = malloc(sizeof(Token));
 
-  /* check for brackets */
-  if(*input_ptr == '(' || *input_ptr == ')') {
+  /* check for single-character tokens */
+  if(strchr("()/", *input_ptr)) {
     t->text = malloc(2);
     t->text[0] = *input_ptr;
     t->text[1] = '\0';
-    t->type = (*input_ptr == '(') ? LPAREN : RPAREN;
+    /* select token type */
+    switch(*input_ptr) {
+      case '(': t->type = LPAREN;    break;
+      case ')': t->type = RPAREN;    break;
+      case '/': t->type = SLASHVARS; break;
+    }
     input_ptr++;
     return t;
   }
 
-  /* not a bracket, copy the word */
+  /* not a bracket or a slash, copy the word */
   len = strcspn(input_ptr, WHITESPACE BRACKETS);
   t->text = malloc(len + 1);
   strncpy(t->text, input_ptr, len);
@@ -273,6 +278,8 @@ int main(int argc, char **argv) {
   Token *t;
   Token *stack[STACK_MAX];
   int sp = 0;
+  int first_token;
+  int slashvar_mode;
 
 #define PUSH(t) if(sp >= STACK_MAX) {                   \
                   fprintf(stderr, "Stack overflow.\n"); \
@@ -282,52 +289,79 @@ int main(int argc, char **argv) {
 
   /* TODO: use getline() or similar */
   while(fgets(input, 1024, stdin)) {
+    first_token = 1;
+    slashvar_mode = 0;
+
     /* repeatedly read tokens and use the output() function to convert from RPN
      * to an expression tree */
     while((t = next_token())) {
-      switch(t->type) {
-        case VARIABLE:
-          /* output variable */
-          output(t);
-          break;
+      if(slashvar_mode) {
+        /* define the order of variables */
+        if(t->type == VARIABLE) var_id(t->text);
+      } else {
+        /* expression evaluation mode */
+        switch(t->type) {
+          case VARIABLE:
+            /* output variable */
+            output(t);
+            break;
 
-        case OPERATOR:
-          /* output operators from the top of the stack */
-          while(sp && (stack[sp-1]->type == OPERATOR
-                    || stack[sp-1]->type == NOT)) {
-            output(stack[--sp]);
-          }
-          /* push operator */
-          PUSH(t);
-          break;
+          case OPERATOR:
+            /* output operators from the top of the stack */
+            while(sp && (stack[sp-1]->type == OPERATOR
+                      || stack[sp-1]->type == NOT)) {
+              output(stack[--sp]);
+            }
+            /* push operator */
+            PUSH(t);
+            break;
 
-        case LPAREN:
-          /* push lparen */
-          PUSH(t);
-          break;
+          case LPAREN:
+            /* push lparen */
+            PUSH(t);
+            break;
 
-        case RPAREN:
-          /* pop operators until LPAREN encountered */
-          while(sp && (stack[sp-1]->type != LPAREN)) {
-            output(stack[--sp]);
-          }
-          /* if stack runs out without finding an LPAREN, parentheses are
-           * mismatched */
-          if(sp == 0) {
-            fprintf(stderr, "Mismatched parentheses.\n");
-            goto cleanup;
-          }
-          /* pop and discard LPAREN */
-          free_token(stack[--sp]);
-          /* free RPAREN */
-          free_token(t);
-          break;
+          case RPAREN:
+            /* pop operators until LPAREN encountered */
+            while(sp && (stack[sp-1]->type != LPAREN)) {
+              output(stack[--sp]);
+            }
+            /* if stack runs out without finding an LPAREN, parentheses are
+             * mismatched */
+            if(sp == 0) {
+              fprintf(stderr, "Mismatched parentheses.\n");
+              goto cleanup;
+            }
+            /* pop and discard LPAREN */
+            free_token(stack[--sp]);
+            /* free RPAREN */
+            free_token(t);
+            break;
 
-        case NOT:
-          /* push operator */
-          PUSH(t);
-          break;
+          case NOT:
+            /* push operator */
+            PUSH(t);
+            break;
+
+          case SLASHVARS:
+            /* enter slashvar mode */
+            if(!first_token) {
+              fprintf(stderr, "Slashvars can not be embedded in expressions.\n");
+              goto cleanup;
+            }
+            slashvar_mode = 1;
+            break;
+        }
       }
+
+      /* not the first token any more */
+      first_token = 0;
+    }
+
+    /* don't print out truth tables or wipe out variables */
+    if(slashvar_mode) {
+      input_ptr = NULL;/* reset token stream without clearing variables */
+      continue;
     }
 
     /* while operators left on stack, output them */
