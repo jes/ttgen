@@ -185,9 +185,10 @@ static void output(Token *t) {
   free_token(t);
 }
 
-/* evaluate the expression with the variable values given in 'bits' */
+/* evaluate the expression with the variable values given in 'bits'.
+ * return -1 on stack overflow, and -2 on underflow */
 static int evaluate(uint64_t bits) {
-  char stack[128];
+  char stack[STACK_MAX];
   int sp = 0;
   int i, r;
   int a, b;
@@ -197,11 +198,13 @@ static int evaluate(uint64_t bits) {
     switch(node[i].type) {
       case VARIABLE:
         /* push variable value */
+        if(sp >= STACK_MAX) return -1;
         stack[sp++] = !!(bits & (1 << node[i].id));
         break;
 
       case OPERATOR:
         /* pop operands */
+        if(sp <= 1) return -2;
         b = stack[--sp];
         a = stack[--sp];
 
@@ -216,10 +219,12 @@ static int evaluate(uint64_t bits) {
         }
 
         /* push result */
+        if(sp >= STACK_MAX) return -1;
         stack[sp++] = r;
         break;
 
       case NOT:
+        if(sp <= 0) return -2;
         stack[sp - 1] = !stack[sp - 1];
         break;
     }
@@ -233,6 +238,13 @@ static void print_table(void) {
   uint64_t i;
   uint64_t b;
   int var_len[num_vars];
+  int fail;
+
+  /* HACK: see if the stack is going to fail before printing the variables */
+  if((fail = evaluate(0)) < 0) {
+    fprintf(stderr, "Stack %sflow.\n", (fail == -1) ? "over" : "under");
+    return;
+  }
 
   for(i = 0; i < num_vars; i++) {
     var_len[i] = strlen(variable[i]);
