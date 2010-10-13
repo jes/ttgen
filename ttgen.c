@@ -80,14 +80,15 @@ static int oper_id(const char *oper_name) {
   return -1;
 }
 
-/* resets the token stream so that it is ready for another string and clears
- * all the variables */
+/* resets the token stream so that it is ready for another string */
 static void reset_tokstr(void) {
+  input_ptr = NULL;
+}
+
+/* clears the variables */
+static void clear_vars(void) {
   int i;
 
-  input_ptr = NULL;
-
-  /* clear out the variables */
   for(i = 0; i < num_vars; i++) {
     free(variable[i]);
     variable[i] = NULL;
@@ -349,6 +350,9 @@ int main(int argc, char **argv) {
               fprintf(stderr, "Slashvars can not be embedded in expressions.\n");
               goto cleanup;
             }
+            /* clear previous variables */
+            clear_vars();
+            /* enter slashvar mode */
             slashvar_mode = 1;
             break;
         }
@@ -360,7 +364,7 @@ int main(int argc, char **argv) {
 
     /* don't print out truth tables or wipe out variables */
     if(slashvar_mode) {
-      input_ptr = NULL;/* reset token stream without clearing variables */
+      reset_tokstr();
       continue;
     }
 
@@ -385,6 +389,8 @@ int main(int argc, char **argv) {
     }
     /* reset the token stream */
     reset_tokstr();
+    /* clear the variables */
+    clear_vars();
     /* free the expression nodes */
     free_nodes();
 
