@@ -12,7 +12,7 @@
 #define BRACKETS   "()"
 
 enum type { UNKNOWN=0, VARIABLE, OPERATOR, LPAREN, RPAREN, NOT, SLASHVARS };
-enum oper { OP_OR, OP_AND, OP_XOR, OP_NAND, OP_NOR, OP_IMP };
+enum oper { OP_OR, OP_AND, OP_XOR, OP_NAND, OP_NOR, OP_IMP, OP_EQU };
 
 typedef struct Node {
   char type;/* UNKNOWN, VARIABLE, OPERATOR, or NOT */
@@ -25,7 +25,7 @@ typedef struct Token {
 } Token;
 
 /* array of operator names */
-static char *operator[] = { "OR", "AND", "XOR", "NAND", "NOR", "IMP", NULL };
+static char *operator[] = { "OR", "AND", "XOR", "NAND", "NOR", "IMP", "EQU", NULL };
 
 #define STACK_MAX 128
 
@@ -217,12 +217,13 @@ static int evaluate(uint64_t bits) {
 
         /* calculate result */
         switch(node[i].id) {
-          case OP_OR: r = a || b; break;
-          case OP_AND: r = a && b; break;
-          case OP_XOR: r = a != b; break;
+          case OP_OR:   r = a || b;    break;
+          case OP_AND:  r = a && b;    break;
+          case OP_XOR:  r = a != b;    break;
           case OP_NAND: r = !(a && b); break;
-          case OP_NOR: r = !(a || b); break;
-          case OP_IMP: r = !a || b; break;
+          case OP_NOR:  r = !(a || b); break;
+          case OP_IMP:  r = !a || b;   break;
+          case OP_EQU:  r = a == b;    break;
         }
 
         /* push result */
