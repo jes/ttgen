@@ -3,6 +3,7 @@
    James Stanley 2010 */
 
 #include <stdio.h>
+#include <ctype.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,8 @@
 
 #define WHITESPACE " \n\t"
 #define BRACKETS   "()"
+#define LETTER     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+#define NUMBER     "0123456789"
 
 enum type { UNKNOWN=0, VARIABLE, OPERATOR, LPAREN, RPAREN, NOT, SLASHVARS };
 enum oper { OP_OR, OP_AND, OP_XOR, OP_NAND, OP_NOR, OP_IMP, OP_EQU };
@@ -25,7 +28,10 @@ typedef struct Token {
 } Token;
 
 /* array of operator names */
-static char *operator[] = { "OR", "AND", "XOR", "NAND", "NOR", "IMP", "EQU", NULL };
+static char *operator[] =
+  { "OR", "AND", "XOR", "NAND", "NOR", "IMP", "EQU", NULL };
+static char *short_op[] =
+  { "|", "&", "^", "", "", "->", "=", NULL };
 
 #define STACK_MAX 128
 
@@ -62,8 +68,10 @@ static int var_id(const char *var_name) {
     if(strcmp(var_name, variable[i]) == 0) return i;
   }
 
+  /* TODO: handle this more gracefully */
   if(i == VAR_MAX) die("error: maximum of %d variables\n", VAR_MAX);
 
+  /* if the variable wasn't found, make it */
   variable[i] = strdup(var_name);
   num_vars++;
   return i;
@@ -75,6 +83,7 @@ static int oper_id(const char *oper_name) {
 
   for(i = 0; operator[i]; i++) {
     if(strcasecmp(oper_name, operator[i]) == 0) return i;
+    if(strcmp(oper_name, short_op[i]) == 0) return i;
   }
 
   return -1;
@@ -116,47 +125,74 @@ static Token *next_token(void) {
     return NULL;
   }
 
-  t = malloc(sizeof(Token));
+#define RETURN_TOKEN(len, token)            \
+  do {                                      \
+    t->type = (token);                      \
+    if(!t->text) {                          \
+      t->text = malloc((len) + 1);          \
+      memcpy(t->text, input_ptr, (len));    \
+      t->text[(len)] = '\0';                \
+    }                                       \
+    input_ptr += (len);                     \
+    return t;                               \
+  } while(0)
 
-  /* check for single-character tokens */
+  t = malloc(sizeof(Token));
+  memset(t, 0, sizeof(Token));
+
+  /* check for easy single-character tokens */
   if(strchr("()/", *input_ptr)) {
-    t->text = malloc(2);
-    t->text[0] = *input_ptr;
-    t->text[1] = '\0';
     /* select token type */
     switch(*input_ptr) {
-      case '(': t->type = LPAREN;    break;
-      case ')': t->type = RPAREN;    break;
-      case '/': t->type = SLASHVARS; break;
+      case '(': RETURN_TOKEN(1, LPAREN);    break;
+      case ')': RETURN_TOKEN(1, RPAREN);    break;
+      case '/': RETURN_TOKEN(1, SLASHVARS); break;
     }
-    input_ptr++;
     return t;
   }
 
-  /* not a bracket or a slash, copy the word */
-  len = strcspn(input_ptr, WHITESPACE BRACKETS);
+  /* check for a symbolic form of an operator */
+  if(!isalpha(*input_ptr)) {
+    /* special case "!" */
+    if(*input_ptr == '!') RETURN_TOKEN(1, NOT);
+
+    /* search for a matching operator name */
+    for(i = 0; short_op[i]; i++) {
+      /* skip operators that have no short form */
+      if(!*short_op[i]) continue;
+
+      if(memcmp(input_ptr, short_op[i], strlen(short_op[i])) == 0)
+        RETURN_TOKEN(strlen(short_op[i]), OPERATOR);
+    }
+  }
+
+  len = strspn(input_ptr, LETTER NUMBER "_");
+
+  /* not a valid operator or variable name */
+  if(len == 0) {
+    RETURN_TOKEN(0, UNKNOWN);
+  }
+
+  /* copy the word */
   t->text = malloc(len + 1);
-  strncpy(t->text, input_ptr, len);
+  memcpy(t->text, input_ptr, len);
   t->text[len] = '\0';
-  input_ptr += len;
+
 
   /* special-case unary operator */
   if(strcasecmp(t->text, "NOT") == 0) {
-    t->type = NOT;
-    return t;
+    RETURN_TOKEN(len, NOT);
   }
 
   /* check for operators */
   for(i = 0; operator[i]; i++) {
     if(strcasecmp(t->text, operator[i]) == 0) {
-      t->type = OPERATOR;
-      return t;
+      RETURN_TOKEN(len, OPERATOR);
     }
   }
 
   /* only remaining possibility is a variable */
-  t->type = VARIABLE;
-  return t;
+  RETURN_TOKEN(len, VARIABLE);
 }
 
 /* free's the given token, including it's text field */
@@ -252,15 +288,15 @@ static void print_table(void) {
 
   /* HACK: see if the stack is going to fail before printing the variables */
   if((fail = evaluate(0)) < 0) {
-    if(fail == -1) fprintf(stderr, "Stack overflow.\n");
-    else if(fail == -2) fprintf(stderr, "Stack underflow.\n");
-    else if(fail == -3) fprintf(stderr, "Stack not empty.\n");
+    if(fail == -1) fprintf(stderr, "error: stack overflow\n");
+    else if(fail == -2) fprintf(stderr, "error: stack underflow\n");
+    else if(fail == -3) fprintf(stderr, "error: stack not empty\n");
     return;
   }
 
-  for(i = 0; i < num_vars; i++) {
-    var_len[i] = strlen(variable[i]);
-    printf("%s ", variable[i]);
+  for(b = 0; b < num_vars; b++) {
+    var_len[b] = strlen(variable[b]);
+    printf("%s ", variable[b]);
   }
   printf("\n");
 
@@ -283,11 +319,14 @@ int main(int argc, char **argv) {
   int first_token;
   int slashvar_mode;
 
-#define PUSH(t) if(sp >= STACK_MAX) {                   \
-                  fprintf(stderr, "Stack overflow.\n"); \
-                  goto cleanup;                         \
-                }                                       \
-                stack[sp++] = (t);
+#define PUSH(t)                                         \
+  do {                                                  \
+    if(sp >= STACK_MAX) {                               \
+      fprintf(stderr, "error: stack overflow\n");       \
+      goto cleanup;                                     \
+    }                                                   \
+    stack[sp++] = (t);                                  \
+  } while(0)
 
   /* TODO: use getline() or similar */
   while(fgets(input, 1024, stdin)) {
@@ -297,9 +336,21 @@ int main(int argc, char **argv) {
     /* repeatedly read tokens and use the output() function to convert from RPN
      * to an expression tree */
     while((t = next_token())) {
+      if(t->type == UNKNOWN) {
+        fprintf(stderr, "error: unexpected character '%c'\n", *input_ptr);
+        goto cleanup;
+      }
+
       if(slashvar_mode) {
         /* define the order of variables */
-        if(t->type == VARIABLE) var_id(t->text);
+        if(t->type == VARIABLE) {
+          /* make the variable exist */
+          var_id(t->text);
+        } else {
+          fprintf(stderr, "error: non-variable \"%s\" in slashvar line\n",
+                  t->text);
+          goto cleanup;
+        }
       } else {
         /* expression evaluation mode */
         switch(t->type) {
@@ -331,7 +382,7 @@ int main(int argc, char **argv) {
             /* if stack runs out without finding an LPAREN, parentheses are
              * mismatched */
             if(sp == 0) {
-              fprintf(stderr, "Mismatched parentheses.\n");
+              fprintf(stderr, "error: mismatched parentheses\n");
               goto cleanup;
             }
             /* pop and discard LPAREN */
@@ -348,7 +399,8 @@ int main(int argc, char **argv) {
           case SLASHVARS:
             /* enter slashvar mode */
             if(!first_token) {
-              fprintf(stderr, "Slashvars can not be embedded in expressions.\n");
+              fprintf(stderr, "error: slashvars can not be embedded in "
+                      "expressions\n");
               goto cleanup;
             }
             /* clear previous variables */
@@ -373,7 +425,7 @@ int main(int argc, char **argv) {
     while(sp) {
       /* if any LPAREN's are on the stack, parentheses are mismatched */
       if(stack[sp-1]->type == LPAREN) {
-        fprintf(stderr, "Mismatched parentheses.\n");
+        fprintf(stderr, "error: mismatched parentheses\n");
         goto cleanup;
       }
       /* output operator */
