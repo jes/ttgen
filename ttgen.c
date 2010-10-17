@@ -166,7 +166,7 @@ static Token *next_token(void) {
     }
   }
 
-  len = strspn(input_ptr, LETTER NUMBER "_");
+  len = strspn(input_ptr, LETTER NUMBER "_'");
 
   /* not a valid operator or variable name */
   if(len == 0) {
