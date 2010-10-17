@@ -304,11 +304,11 @@ static void print_table(void) {
    * overflow */
   for(i = (1 << num_vars) - 1; i != -1; i--) {
     for(b = 0; b < num_vars; b++) {
-        printf("%-*d ", var_len[b], !!(i & (1 << b)));
+        printf("%-*c ", var_len[b], "FT"[!!(i & (1 << b))]);
     }
 
     printf(" ");
-    printf("%d\n", evaluate(i));
+    printf("%c\n", "FT"[evaluate(i)]);
   }
 }
 
