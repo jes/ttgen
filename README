@@ -17,6 +17,9 @@ And ttgen will respond with the truth table:
   T F F  F
   F F F  F
 
+Exit ttgen by giving EOF on stdin (usually with ^D), or by killing the program
+in any way (e.g. with ^C).
+
 Operators available:
 Symbol   Synonym   Operator
 !        NOT       Logical negation
