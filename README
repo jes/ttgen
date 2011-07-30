@@ -1,0 +1,82 @@
+ttgen is a program to generate truth tables for boolean logic expressions.
+
+Compile it with:
+$ cc -o ttgen ttgen.c
+
+When you run the program, you will receive no output initally. You are expected
+to enter a boolean expression, for example:
+  X & Y & !Z
+And ttgen will respond with the truth table:
+  X Y Z 
+  T T T  F
+  F T T  F
+  T F T  F
+  F F T  F
+  T T F  T
+  F T F  F
+  T F F  F
+  F F F  F
+
+Operators available:
+Symbol   Synonym   Operator
+!        NOT       Logical negation
+|        OR        Logical or
+&        AND       Logical and
+^        XOR       Logical xor
+         NAND      Logical nand (NOT (X AND Y))
+         NOR       Logical nor (NOT (X OR Y))
+->       IMP       Logical implication ((NOT A) OR B)
+=        EQU       Logical equivalence
+
+In addition, parentheses are supported and operator synonyms are case
+insensitive.
+Variable names may consist of letters, numbers, underscore and single quote(').
+The latter is allowed so that variables like X' (X prime) may be used.
+
+The variables are shown in the table in the order in which they appeared in
+your expression. If you wish to change this order, you may use slashvars mode.
+  /Z Y X
+  X & Y & !Z
+And ttgen responds with:
+  Z Y X 
+  T T T  F
+  F T T  T
+  T F T  F
+  F F T  F
+  T T F  F
+  F T F  F
+  T F F  F
+  F F F  F
+
+Slashvars mode is easiest to understand (and is, in fact, implemented) as if
+the variables given on the slashvar line were present at the start of the
+expression. This means that if you miss some variables out in your slashvar
+line they can still be used with no problem in the expression, and also that if
+some variables in the slashvar line are not present in the expression they will
+still appear in the truth table:
+  /X Y
+  Y & Z
+ttgen responds:
+  X Y Z 
+  T T T  T
+  F T T  T
+  T F T  F
+  F F T  F
+  T T F  F
+  F T F  F
+  T F F  F
+  F F F  F
+
+Slashvars mode is entered when a / is encountered as the first token on a line,
+and all variables are immediately cleared. This means that if you specify two
+slashvar lines without an expression in between, only the second slashvar line
+will actually apply:
+  /X Y Z
+  /Y Z
+ttgen responds:
+  Y Z 
+  T T  T
+  F T  F
+  T F  F
+  F F  F
+Note no X variable in the output.
